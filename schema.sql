@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name VARCHAR(255),
     role VARCHAR(20) NOT NULL DEFAULT 'operator',
     is_active TINYINT(1) DEFAULT 1,
+    token_version INT NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_username (username)

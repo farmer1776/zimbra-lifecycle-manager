@@ -5,7 +5,7 @@ import io
 import csv
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -45,12 +45,20 @@ app = FastAPI(
     title="Zimbra Mailbox Lifecycle Manager",
     version="1.1.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ── Pydantic schemas ─────────────────────────────────────────────────
+
+def _validate_password(password: str):
+    if len(password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -85,13 +93,20 @@ async def login_page():
 # ── Auth ──────────────────────────────────────────────────────────────
 
 @app.post("/api/auth/login")
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    client_ip = request.headers.get("X-Real-IP", request.client.host)
+    rate_key = f"login:{client_ip}"
+    if cache.check_rate_limit(rate_key, max_attempts=5, window=300):
+        raise HTTPException(429, "Too many login attempts — try again in 5 minutes")
+
     user = db.query(User).filter(User.username == body.username).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(401, "Invalid username or password")
     if not user.is_active:
         raise HTTPException(403, "Account is disabled")
-    token = create_token(user.id, user.username, user.role)
+
+    cache.clear_rate_limit(rate_key)
+    token = create_token(user.id, user.username, user.role, user.token_version)
     return {
         "token": token,
         "user": {
@@ -142,6 +157,7 @@ def create_user(
         raise HTTPException(400, "Username already exists")
     if body.role not in ("admin", "operator"):
         raise HTTPException(400, "Role must be 'admin' or 'operator'")
+    _validate_password(body.password)
     user = User(
         username=body.username,
         password_hash=hash_password(body.password),
@@ -171,6 +187,8 @@ def update_user(
         user.role = body.role
     if body.is_active is not None:
         user.is_active = body.is_active
+        if not body.is_active:
+            user.token_version += 1
     db.commit()
     return {"message": "User updated"}
 
@@ -184,7 +202,9 @@ def change_user_password(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(404, "User not found")
+    _validate_password(body.password)
     user.password_hash = hash_password(body.password)
+    user.token_version += 1
     db.commit()
     return {"message": "Password changed"}
 
@@ -313,7 +333,7 @@ async def change_status(
 @app.post("/api/accounts/{account_id}/purge")
 async def purge_account(
     account_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     try:
@@ -344,7 +364,9 @@ async def bulk_status_from_csv(
     if not file.filename.endswith(".csv"):
         raise HTTPException(400, "File must be a .csv")
 
-    content = await file.read()
+    content = await file.read(settings.MAX_UPLOAD_BYTES + 1)
+    if len(content) > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(400, f"File too large (max {settings.MAX_UPLOAD_BYTES // 1024 // 1024} MB)")
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -424,7 +446,9 @@ async def bulk_csv_import(
     if not file.filename.endswith(".csv"):
         raise HTTPException(400, "File must be a .csv")
 
-    content = await file.read()
+    content = await file.read(settings.MAX_UPLOAD_BYTES + 1)
+    if len(content) > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(400, f"File too large (max {settings.MAX_UPLOAD_BYTES // 1024 // 1024} MB)")
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -517,11 +541,15 @@ async def trigger_sync(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    sync_status = cache.get_sync_status()
+    if sync_status and sync_status.get("status") == "running":
+        raise HTTPException(409, "A sync is already in progress")
     try:
         result = await services.sync_accounts(db, domain)
         return {"message": "Sync completed", "result": result}
     except Exception as e:
-        raise HTTPException(500, f"Sync failed: {e}")
+        logger.error("Sync failed: %s", e)
+        raise HTTPException(500, "Sync failed — check server logs for details")
 
 
 @app.get("/api/sync/status")
@@ -596,8 +624,4 @@ def audit_log(
 
 @app.get("/api/health")
 def health():
-    return {
-        "status": "ok",
-        "redis": cache.ping(),
-        "version": "1.1.0",
-    }
+    return {"status": "ok"}

@@ -18,6 +18,8 @@ class Settings:
     ZIMBRA_ADMIN_USER: str = os.getenv("ZIMBRA_ADMIN_USER", "admin@example.com")
     ZIMBRA_ADMIN_PASSWORD: str = os.getenv("ZIMBRA_ADMIN_PASSWORD", "changeme")
     ZIMBRA_ADMIN_PORT: int = int(os.getenv("ZIMBRA_ADMIN_PORT", "7071"))
+    ZIMBRA_SSL_VERIFY: bool = os.getenv("ZIMBRA_SSL_VERIFY", "true").lower() in ("true", "1", "yes")
+    ZIMBRA_CA_CERT: str = os.getenv("ZIMBRA_CA_CERT", "")
 
     # Database
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
@@ -46,6 +48,7 @@ class Settings:
     APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
     PURGE_INACTIVITY_DAYS: int = int(os.getenv("PURGE_INACTIVITY_DAYS", "60"))
     SYNC_INTERVAL_MINUTES: int = int(os.getenv("SYNC_INTERVAL_MINUTES", "30"))
+    MAX_UPLOAD_BYTES: int = int(os.getenv("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))  # 5 MB
 
 
 settings = Settings()

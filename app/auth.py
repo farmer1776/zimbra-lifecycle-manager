@@ -24,11 +24,12 @@ def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
 
-def create_token(user_id: int, username: str, role: str) -> str:
+def create_token(user_id: int, username: str, role: str, token_version: int = 0) -> str:
     payload = {
         "sub": user_id,
         "username": username,
         "role": role,
+        "ver": token_version,
         "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=ALGORITHM)
@@ -47,11 +48,11 @@ def decode_token(token: str) -> dict:
 
 
 def _extract_token(request: Request) -> Optional[str]:
-    """Extract JWT from Authorization header or cookie."""
+    """Extract JWT from Authorization header."""
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         return auth[7:]
-    return request.cookies.get("token")
+    return None
 
 
 async def get_current_user(
@@ -68,6 +69,8 @@ async def get_current_user(
     user = db.query(User).filter(User.id == payload["sub"]).first()
     if not user or not user.is_active:
         raise HTTPException(401, "User not found or inactive")
+    if payload.get("ver", 0) != user.token_version:
+        raise HTTPException(401, "Token revoked — please log in again")
     return user
 
 
@@ -85,6 +88,8 @@ async def require_admin(
     user = db.query(User).filter(User.id == payload["sub"]).first()
     if not user or not user.is_active:
         raise HTTPException(401, "User not found or inactive")
+    if payload.get("ver", 0) != user.token_version:
+        raise HTTPException(401, "Token revoked — please log in again")
     if user.role != "admin":
         raise HTTPException(403, "Admin access required")
     return user

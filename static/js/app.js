@@ -211,7 +211,7 @@ function app() {
             this.modal = {
                 show: true,
                 title: `${labels[newStatus]} Account`,
-                message: `Change <strong>${acct.email}</strong> status from <strong>${acct.account_status}</strong> to <strong>${newStatus}</strong>?`,
+                message: `Change ${acct.email} from ${acct.account_status} to ${newStatus}?`,
                 btnText: labels[newStatus],
                 btnClass: newStatus === 'closed' ? 'btn-danger' : newStatus === 'locked' ? 'btn-warning' : 'btn-primary',
                 loading: false,
@@ -251,7 +251,7 @@ function app() {
             this.modal = {
                 show: true,
                 title: 'Purge Account',
-                message: `<strong style="color:var(--red)">Permanently delete</strong> mailbox <strong>${acct.email}</strong>?<br><br>This action cannot be undone.`,
+                message: `Permanently delete mailbox ${acct.email}? This action cannot be undone.`,
                 btnText: 'Purge Account',
                 btnClass: 'btn-danger',
                 loading: false,
@@ -391,7 +391,7 @@ function app() {
             this.modal = {
                 show: true,
                 title: `Change Password: ${u.username}`,
-                message: `Enter a new password for <strong>${u.username}</strong>.`,
+                message: `Enter a new password for ${u.username}.`,
                 btnText: 'Change Password',
                 btnClass: 'btn-primary',
                 loading: false,
@@ -422,7 +422,7 @@ function app() {
             this.modal = {
                 show: true,
                 title: 'Delete User',
-                message: `Permanently delete user <strong>${u.username}</strong>?`,
+                message: `Permanently delete user ${u.username}?`,
                 btnText: 'Delete',
                 btnClass: 'btn-danger',
                 loading: false,

@@ -26,9 +26,16 @@ class ZimbraClient:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
+            if settings.ZIMBRA_SSL_VERIFY:
+                if settings.ZIMBRA_CA_CERT:
+                    ssl_ctx = ssl.create_default_context(cafile=settings.ZIMBRA_CA_CERT)
+                else:
+                    ssl_ctx = ssl.create_default_context()
+            else:
+                ssl_ctx = ssl.create_default_context()
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = ssl.CERT_NONE
+                logger.warning("Zimbra SSL verification is disabled")
             connector = aiohttp.TCPConnector(ssl=ssl_ctx)
             self._session = aiohttp.ClientSession(connector=connector)
         return self._session

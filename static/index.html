@@ -6,7 +6,7 @@
     <title>Zimbra Lifecycle Manager</title>
     <link rel="stylesheet" href="/static/css/style.css?v=1.1">
     <style>[x-cloak] { display: none !important; }</style>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+    <script defer src="/static/js/alpine.min.js"></script>
     <script>
         // Immediate auth gate — runs before Alpine loads
         if (!localStorage.getItem('token')) {
@@ -510,7 +510,7 @@ user2@example.com,locked</pre>
     <div class="modal-overlay" x-show="modal.show" x-cloak @click.self="modal.show=false">
         <div class="modal">
             <h3 x-text="modal.title"></h3>
-            <p x-html="modal.message"></p>
+            <p x-text="modal.message"></p>
             <template x-if="modal.input">
                 <div style="margin-top:.75rem">
                     <label style="display:block;font-size:.75rem;font-weight:600;text-transform:uppercase;color:var(--text-secondary);margin-bottom:.25rem"

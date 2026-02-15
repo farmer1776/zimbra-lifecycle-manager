@@ -225,7 +225,7 @@ async def change_account_status(
         await zimbra_client.modify_account_status(account.zimbra_id, new_status)
     except Exception as e:
         logger.error("Zimbra status change failed for %s: %s", account.email, e)
-        raise ValueError(f"Zimbra API error: {e}")
+        raise ValueError("Failed to update status in Zimbra — check server logs")
 
     # Update local DB
     account.account_status = new_status
@@ -288,7 +288,7 @@ async def purge_account(
         await zimbra_client.delete_account(account.zimbra_id)
     except Exception as e:
         logger.error("Zimbra purge failed for %s: %s", account.email, e)
-        raise ValueError(f"Zimbra API error: {e}")
+        raise ValueError("Failed to purge account in Zimbra — check server logs")
 
     # Audit log
     db.add(

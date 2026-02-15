@@ -80,3 +80,25 @@ def invalidate_all():
             _redis.delete(*keys)
     except Exception as e:
         logger.warning("Redis invalidate_all error: %s", e)
+
+
+RATE_LIMIT_PREFIX = "ratelimit:"
+
+
+def check_rate_limit(key: str, max_attempts: int = 5, window: int = 300) -> bool:
+    """Return True if the key has exceeded max_attempts within window seconds."""
+    try:
+        rkey = f"{RATE_LIMIT_PREFIX}{key}"
+        count = _redis.incr(rkey)
+        if count == 1:
+            _redis.expire(rkey, window)
+        return count > max_attempts
+    except Exception:
+        return False
+
+
+def clear_rate_limit(key: str):
+    try:
+        _redis.delete(f"{RATE_LIMIT_PREFIX}{key}")
+    except Exception:
+        pass

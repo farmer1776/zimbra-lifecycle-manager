@@ -102,6 +102,8 @@ ZIMBRA_HOST=https://your-zimbra-server.com
 ZIMBRA_ADMIN_USER=admin@yourdomain.com
 ZIMBRA_ADMIN_PASSWORD=your-admin-password
 ZIMBRA_ADMIN_PORT=7071
+ZIMBRA_SSL_VERIFY=true
+# ZIMBRA_CA_CERT=/path/to/ca-bundle.crt
 
 # MySQL
 DB_HOST=localhost
@@ -124,6 +126,7 @@ SEED_OPERATOR_PASSWORD=your-operator-password
 APP_HOST=127.0.0.1
 APP_PORT=8000
 PURGE_INACTIVITY_DAYS=60
+# MAX_UPLOAD_BYTES=5242880
 ```
 
 ### 5. Set up the systemd service
