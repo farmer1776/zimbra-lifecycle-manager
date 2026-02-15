@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Zimbra Lifecycle Manager</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .login-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .login-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 2.5rem 2rem;
+            width: 360px;
+            box-shadow: 0 8px 32px rgba(0,0,0,.4);
+        }
+        .login-box h1 {
+            font-size: 1.2rem;
+            margin-bottom: .35rem;
+        }
+        .login-box h1 span { color: var(--accent); }
+        .login-box .subtitle {
+            color: var(--text-secondary);
+            font-size: .82rem;
+            margin-bottom: 1.75rem;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .form-group label {
+            display: block;
+            font-size: .78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: var(--text-secondary);
+            margin-bottom: .35rem;
+        }
+        .form-group input {
+            width: 100%;
+            padding: .6rem .75rem;
+            font-size: .9rem;
+        }
+        .login-btn {
+            width: 100%;
+            padding: .65rem;
+            margin-top: .5rem;
+            font-size: .9rem;
+        }
+        .login-error {
+            background: var(--red-bg);
+            color: var(--red);
+            padding: .6rem .75rem;
+            border-radius: var(--radius-sm);
+            font-size: .82rem;
+            margin-bottom: 1rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-wrap">
+        <form class="login-box" id="loginForm" onsubmit="return doLogin(event)">
+            <h1><span>&#9632;</span> Zimbra Lifecycle Manager</h1>
+            <p class="subtitle">Sign in to continue</p>
+            <div class="login-error" id="loginError"></div>
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn btn-primary login-btn" id="loginBtn">Sign In</button>
+        </form>
+    </div>
+    <script>
+        // If already logged in, redirect
+        if (localStorage.getItem('token')) {
+            window.location.href = '/';
+        }
+
+        async function doLogin(e) {
+            e.preventDefault();
+            const errEl = document.getElementById('loginError');
+            const btn = document.getElementById('loginBtn');
+            errEl.style.display = 'none';
+            btn.disabled = true;
+            btn.textContent = 'Signing in...';
+
+            try {
+                const resp = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        password: document.getElementById('password').value,
+                    }),
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    throw new Error(data.detail || 'Login failed');
+                }
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                window.location.href = '/';
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.style.display = 'block';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        }
+    </script>
+</body>
+</html>

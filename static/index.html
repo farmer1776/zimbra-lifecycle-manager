@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zimbra Lifecycle Manager</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=1.1">
+    <style>[x-cloak] { display: none !important; }</style>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+    <script>
+        // Immediate auth gate — runs before Alpine loads
+        if (!localStorage.getItem('token')) {
+            window.location.replace('/login');
+        }
+    </script>
+</head>
+<body x-data="app()" x-init="init()" x-cloak x-show="authenticated">
+
+    <!-- Toast Notifications -->
+    <div class="toast-container">
+        <template x-for="(t, i) in toasts" :key="i">
+            <div class="toast" :class="t.type">
+                <span x-text="t.message"></span>
+                <button class="toast-close" @click="toasts.splice(i,1)">&times;</button>
+            </div>
+        </template>
+    </div>
+
+    <!-- Header -->
+    <header class="app-header">
+        <h1><span>&#9632;</span> Zimbra Lifecycle Manager</h1>
+        <div class="header-actions">
+            <span style="font-size:.78rem;color:var(--text-muted)" x-text="syncStatusText"></span>
+            <button class="btn btn-primary btn-sm" @click="triggerSync()" :disabled="syncing">
+                <template x-if="syncing"><span class="spinner"></span></template>
+                <span x-text="syncing ? 'Syncing...' : 'Sync Now'"></span>
+            </button>
+            <span style="font-size:.78rem;color:var(--text-secondary);margin-left:.5rem"
+                x-text="currentUser.display_name || currentUser.username"></span>
+            <button class="btn btn-sm" @click="logout()" style="margin-left:.25rem">Logout</button>
+        </div>
+    </header>
+
+    <div class="main-content">
+        <!-- Navigation -->
+        <div class="nav-tabs">
+            <button class="nav-tab" :class="tab==='dashboard'&&'active'" @click="tab='dashboard'">Dashboard</button>
+            <button class="nav-tab" :class="tab==='accounts'&&'active'" @click="tab='accounts';loadAccounts()">Accounts</button>
+            <button class="nav-tab" :class="tab==='bulk'&&'active'" @click="tab='bulk'">Bulk Import</button>
+            <button class="nav-tab" :class="tab==='purge'&&'active'" @click="tab='purge';loadPurgeEligible()">Purge Queue</button>
+            <button class="nav-tab" :class="tab==='audit'&&'active'" @click="tab='audit';loadAudit()">Audit Log</button>
+            <template x-if="currentUser.role==='admin'">
+                <button class="nav-tab" :class="tab==='users'&&'active'" @click="tab='users';loadUsers()">Users</button>
+            </template>
+        </div>
+
+        <!-- ─── Dashboard ─────────────────────────────────────── -->
+        <div x-show="tab==='dashboard'" x-cloak>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="label">Total Accounts</div>
+                    <div class="value" x-text="stats.total_accounts || 0"></div>
+                </div>
+                <div class="stat-card green">
+                    <div class="label">Active</div>
+                    <div class="value" x-text="stats.active || 0"></div>
+                </div>
+                <div class="stat-card yellow">
+                    <div class="label">Locked</div>
+                    <div class="value" x-text="stats.locked || 0"></div>
+                </div>
+                <div class="stat-card red">
+                    <div class="label">Closed</div>
+                    <div class="value" x-text="stats.closed || 0"></div>
+                </div>
+                <div class="stat-card orange">
+                    <div class="label">Maintenance</div>
+                    <div class="value" x-text="stats.maintenance || 0"></div>
+                </div>
+                <div class="stat-card blue">
+                    <div class="label">With Forwarding</div>
+                    <div class="value" x-text="stats.with_forwarding || 0"></div>
+                </div>
+                <div class="stat-card red">
+                    <div class="label">Purge Eligible</div>
+                    <div class="value" x-text="stats.purge_eligible || 0"></div>
+                </div>
+            </div>
+
+            <div class="table-wrap" x-show="stats.domains && stats.domains.length">
+                <table>
+                    <thead>
+                        <tr><th>Domain</th><th>Account Count</th></tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="d in stats.domains" :key="d.name">
+                            <tr>
+                                <td class="email-cell" x-text="d.name"></td>
+                                <td x-text="d.count.toLocaleString()"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ─── Accounts ──────────────────────────────────────── -->
+        <div x-show="tab==='accounts'" x-cloak>
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <input type="search" placeholder="Search email..." x-model="filters.search"
+                        @keydown.enter="loadAccounts()" style="width:220px">
+                    <select x-model="filters.domain" @change="loadAccounts()">
+                        <option value="">All Domains</option>
+                        <template x-for="d in domains" :key="d.domain_name">
+                            <option :value="d.domain_name" x-text="d.domain_name + ' (' + d.account_count + ')'"></option>
+                        </template>
+                    </select>
+                    <select x-model="filters.status" @change="loadAccounts()">
+                        <option value="">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="locked">Locked</option>
+                        <option value="closed">Closed</option>
+                        <option value="maintenance">Maintenance</option>
+                    </select>
+                    <button class="btn btn-sm" @click="loadAccounts()">Filter</button>
+                    <button class="btn btn-sm" @click="resetFilters()">Clear</button>
+                </div>
+                <div class="toolbar-group" style="margin-left:auto">
+                    <span style="font-size:.78rem;color:var(--text-secondary)"
+                        x-text="accountData.total + ' accounts'"></span>
+                    <button class="btn btn-sm" @click="exportCSV()">Export CSV</button>
+                </div>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th @click="sortAccounts('email')">Email <span class="sort-icon" x-text="sortIcon('email')"></span></th>
+                            <th @click="sortAccounts('account_status')">Status <span class="sort-icon" x-text="sortIcon('account_status')"></span></th>
+                            <th @click="sortAccounts('last_login')">Last Login <span class="sort-icon" x-text="sortIcon('last_login')"></span></th>
+                            <th>Forwarding</th>
+                            <th @click="sortAccounts('domain')">Domain <span class="sort-icon" x-text="sortIcon('domain')"></span></th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-if="loading">
+                            <tr><td colspan="6" class="empty-state"><span class="spinner"></span></td></tr>
+                        </template>
+                        <template x-if="!loading && accountData.accounts.length === 0">
+                            <tr><td colspan="6" class="empty-state"><p>No accounts found</p></td></tr>
+                        </template>
+                        <template x-for="acct in accountData.accounts" :key="acct.id">
+                            <tr>
+                                <td class="email-cell" x-text="acct.email"></td>
+                                <td><span class="badge" :class="'badge-'+acct.account_status" x-text="acct.account_status"></span></td>
+                                <td style="font-size:.8rem;color:var(--text-secondary)"
+                                    x-text="acct.last_login ? formatDate(acct.last_login) : 'Never'"></td>
+                                <td>
+                                    <template x-if="acct.forwarding_addresses">
+                                        <span class="fwd-badge" :title="acct.forwarding_addresses">
+                                            &#8594; <span x-text="truncate(acct.forwarding_addresses, 30)"></span>
+                                        </span>
+                                    </template>
+                                </td>
+                                <td class="domain-cell" x-text="acct.domain"></td>
+                                <td>
+                                    <div style="display:flex;gap:.25rem">
+                                        <button class="btn btn-sm" @click="showDetail(acct)">View</button>
+                                        <template x-if="acct.account_status==='locked'">
+                                            <button class="btn btn-sm btn-warning" @click="confirmStatusChange(acct,'closed')">Close</button>
+                                        </template>
+                                        <template x-if="acct.account_status==='active'">
+                                            <button class="btn btn-sm" @click="confirmStatusChange(acct,'locked')">Lock</button>
+                                        </template>
+                                        <template x-if="acct.account_status==='closed' || acct.account_status==='locked'">
+                                            <button class="btn btn-sm" @click="confirmStatusChange(acct,'active')">Activate</button>
+                                        </template>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+                <div class="pagination" x-show="accountData.pages > 1">
+                    <span x-text="'Page ' + accountData.page + ' of ' + accountData.pages"></span>
+                    <div class="pagination-btns">
+                        <button class="page-btn" @click="changePage(1)" :disabled="accountData.page<=1">&laquo;</button>
+                        <button class="page-btn" @click="changePage(accountData.page-1)" :disabled="accountData.page<=1">&lsaquo;</button>
+                        <button class="page-btn" @click="changePage(accountData.page+1)" :disabled="accountData.page>=accountData.pages">&rsaquo;</button>
+                        <button class="page-btn" @click="changePage(accountData.pages)" :disabled="accountData.page>=accountData.pages">&raquo;</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── Bulk Operations ─────────────────────────────── -->
+        <div x-show="tab==='bulk'" x-cloak>
+            <div style="margin-bottom:1.25rem">
+                <h2 style="font-size:1.05rem;margin-bottom:.35rem">Bulk Operations</h2>
+            </div>
+
+            <!-- Mode selector -->
+            <div class="nav-tabs" style="margin-bottom:1.25rem">
+                <button class="nav-tab" :class="bulkMode==='simple'&&'active'" @click="bulkMode='simple'">Bulk Status Change</button>
+                <button class="nav-tab" :class="bulkMode==='advanced'&&'active'" @click="bulkMode='advanced'">Advanced CSV Import</button>
+            </div>
+
+            <!-- Simple: upload emails + pick one status -->
+            <div x-show="bulkMode==='simple'">
+                <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;max-width:600px">
+                    <p style="font-size:.82rem;color:var(--text-secondary);margin-bottom:1rem">
+                        Upload a CSV with an <strong>email</strong> column, then select the target status to apply to all accounts in the list.
+                    </p>
+                    <div style="display:grid;gap:1rem">
+                        <div>
+                            <label style="display:block;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary);margin-bottom:.35rem">
+                                CSV File (email column)
+                            </label>
+                            <input type="file" accept=".csv" @change="bulkFile=$event.target.files[0]"
+                                style="font-size:.85rem;color:var(--text-primary)">
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary);margin-bottom:.35rem">
+                                Set All Accounts To
+                            </label>
+                            <select x-model="bulkTargetStatus" style="width:100%">
+                                <option value="">-- Select Status --</option>
+                                <option value="active">Active</option>
+                                <option value="locked">Locked</option>
+                                <option value="closed">Closed</option>
+                                <option value="maintenance">Maintenance</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="margin-top:1rem"
+                        @click="uploadBulkSimple()"
+                        :disabled="!bulkFile || !bulkTargetStatus || bulkProcessing">
+                        <template x-if="bulkProcessing"><span class="spinner"></span></template>
+                        <span x-text="bulkProcessing ? 'Processing...' : 'Apply Status Change'"></span>
+                    </button>
+
+                    <div style="margin-top:.75rem;font-size:.82rem;color:var(--text-muted)">
+                        Example CSV (single column):
+                        <pre style="background:var(--bg-input);padding:.5rem;border-radius:var(--radius-sm);margin-top:.35rem;color:var(--text-secondary)">email
+user1@example.com
+user2@example.com
+user3@example.com</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced: per-row status via email,new_status CSV -->
+            <div x-show="bulkMode==='advanced'">
+                <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;max-width:600px">
+                    <p style="font-size:.82rem;color:var(--text-secondary);margin-bottom:1rem">
+                        Upload a CSV with <strong>email</strong> and <strong>new_status</strong> columns to set different statuses per account.
+                    </p>
+                    <div style="margin-bottom:1rem">
+                        <label style="display:block;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary);margin-bottom:.35rem">
+                            CSV File
+                        </label>
+                        <input type="file" accept=".csv" @change="csvFile=$event.target.files[0]"
+                            style="font-size:.85rem;color:var(--text-primary)">
+                    </div>
+                    <button class="btn btn-primary" @click="uploadCSV()" :disabled="!csvFile || csvUploading">
+                        <template x-if="csvUploading"><span class="spinner"></span></template>
+                        <span x-text="csvUploading ? 'Processing...' : 'Upload & Process'"></span>
+                    </button>
+
+                    <div style="margin-top:.75rem;font-size:.82rem;color:var(--text-muted)">
+                        Example CSV:
+                        <pre style="background:var(--bg-input);padding:.5rem;border-radius:var(--radius-sm);margin-top:.35rem;color:var(--text-secondary)">email,new_status
+user1@example.com,closed
+user2@example.com,locked</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Shared Results -->
+            <div x-show="csvResults" style="margin-top:1.25rem">
+                <div class="stats-grid" style="max-width:600px">
+                    <div class="stat-card">
+                        <div class="label">Total Rows</div>
+                        <div class="value" x-text="csvResults?.total || 0"></div>
+                    </div>
+                    <div class="stat-card green">
+                        <div class="label">Success</div>
+                        <div class="value" x-text="csvResults?.success || 0"></div>
+                    </div>
+                    <div class="stat-card red">
+                        <div class="label">Errors</div>
+                        <div class="value" x-text="csvResults?.errors || 0"></div>
+                    </div>
+                </div>
+                <div class="table-wrap" style="margin-top:.75rem" x-show="csvResults?.details?.length">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Row</th>
+                                <th>Email</th>
+                                <th>Result</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="d in (csvResults?.details || [])" :key="d.row">
+                                <tr>
+                                    <td x-text="d.row"></td>
+                                    <td class="email-cell" x-text="d.email"></td>
+                                    <td>
+                                        <span class="badge" :class="d.error ? 'badge-closed' : d.status==='skipped' ? 'badge-locked' : 'badge-active'"
+                                            x-text="d.error ? 'error' : d.status || 'success'"></span>
+                                    </td>
+                                    <td style="font-size:.8rem;color:var(--text-secondary)"
+                                        x-text="d.error || d.message || ''"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── Purge Queue ───────────────────────────────────── -->
+        <div x-show="tab==='purge'" x-cloak>
+            <div style="margin-bottom:1rem;display:flex;align-items:center;gap:.75rem">
+                <h2 style="font-size:1.05rem">Purge-Eligible Accounts</h2>
+                <span style="font-size:.78rem;color:var(--text-secondary)">
+                    Closed &gt;60 days, no forwarding address
+                </span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Status</th>
+                            <th>Last Login</th>
+                            <th>Inactive Since</th>
+                            <th>Forwarding</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-if="purgeAccounts.length === 0">
+                            <tr><td colspan="6" class="empty-state"><p>No purge-eligible accounts</p></td></tr>
+                        </template>
+                        <template x-for="acct in purgeAccounts" :key="acct.id">
+                            <tr>
+                                <td class="email-cell" x-text="acct.email"></td>
+                                <td><span class="badge badge-closed" x-text="acct.account_status"></span></td>
+                                <td style="font-size:.8rem;color:var(--text-secondary)"
+                                    x-text="acct.last_login ? formatDate(acct.last_login) : 'Never'"></td>
+                                <td style="font-size:.8rem;color:var(--text-secondary)"
+                                    x-text="acct.inactive_since ? formatDate(acct.inactive_since) : '-'"></td>
+                                <td>
+                                    <template x-if="acct.forwarding_addresses">
+                                        <span class="fwd-badge">&#128274; Protected</span>
+                                    </template>
+                                    <template x-if="!acct.forwarding_addresses">
+                                        <span style="color:var(--text-muted)">None</span>
+                                    </template>
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-danger"
+                                        @click="confirmPurge(acct)"
+                                        :disabled="!!acct.forwarding_addresses">Purge</button>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ─── Audit Log ─────────────────────────────────────── -->
+        <div x-show="tab==='audit'" x-cloak>
+            <div class="toolbar">
+                <input type="search" placeholder="Filter by account..." x-model="auditSearch"
+                    @keydown.enter="loadAudit()" style="width:220px">
+                <button class="btn btn-sm" @click="loadAudit()">Filter</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Admin</th>
+                            <th>Action</th>
+                            <th>Account</th>
+                            <th>Change</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-if="auditData.logs && auditData.logs.length === 0">
+                            <tr><td colspan="5" class="empty-state"><p>No audit entries</p></td></tr>
+                        </template>
+                        <template x-for="log in (auditData.logs || [])" :key="log.id">
+                            <tr>
+                                <td style="font-size:.8rem;color:var(--text-secondary)" x-text="formatDate(log.created_at)"></td>
+                                <td x-text="log.admin_user"></td>
+                                <td class="log-action" x-text="log.action"></td>
+                                <td class="email-cell" x-text="log.target_account"></td>
+                                <td>
+                                    <span x-text="log.old_value || ''"></span>
+                                    <span class="log-arrow" x-show="log.old_value && log.new_value">&rarr;</span>
+                                    <span x-text="log.new_value || ''"></span>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+                <div class="pagination" x-show="auditData.pages > 1">
+                    <span x-text="'Page ' + auditData.page + ' of ' + auditData.pages"></span>
+                    <div class="pagination-btns">
+                        <button class="page-btn" @click="auditPage--;loadAudit()" :disabled="auditPage<=1">&lsaquo;</button>
+                        <button class="page-btn" @click="auditPage++;loadAudit()" :disabled="auditPage>=auditData.pages">&rsaquo;</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── User Management (admin only) ──────────────────── -->
+        <div x-show="tab==='users'" x-cloak>
+            <div style="margin-bottom:1rem;display:flex;align-items:center;gap:.75rem">
+                <h2 style="font-size:1.05rem">User Management</h2>
+                <button class="btn btn-primary btn-sm" @click="showAddUser=true">Add User</button>
+            </div>
+
+            <!-- Add User Form -->
+            <div x-show="showAddUser" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1rem;max-width:500px">
+                <h3 style="font-size:.95rem;margin-bottom:1rem">New User</h3>
+                <div style="display:grid;gap:.75rem">
+                    <div>
+                        <label style="display:block;font-size:.75rem;font-weight:600;text-transform:uppercase;color:var(--text-secondary);margin-bottom:.25rem">Username</label>
+                        <input type="text" x-model="newUser.username" style="width:100%">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:.75rem;font-weight:600;text-transform:uppercase;color:var(--text-secondary);margin-bottom:.25rem">Display Name</label>
+                        <input type="text" x-model="newUser.display_name" style="width:100%">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:.75rem;font-weight:600;text-transform:uppercase;color:var(--text-secondary);margin-bottom:.25rem">Password</label>
+                        <input type="password" x-model="newUser.password" style="width:100%">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:.75rem;font-weight:600;text-transform:uppercase;color:var(--text-secondary);margin-bottom:.25rem">Role</label>
+                        <select x-model="newUser.role" style="width:100%">
+                            <option value="operator">Operator</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="display:flex;gap:.5rem;margin-top:1rem">
+                    <button class="btn btn-primary btn-sm" @click="addUser()">Create User</button>
+                    <button class="btn btn-sm" @click="showAddUser=false">Cancel</button>
+                </div>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Display Name</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="u in usersList" :key="u.id">
+                            <tr>
+                                <td class="email-cell" x-text="u.username"></td>
+                                <td x-text="u.display_name"></td>
+                                <td>
+                                    <span class="badge" :class="u.role==='admin' ? 'badge-active' : 'badge-locked'"
+                                        x-text="u.role"></span>
+                                </td>
+                                <td>
+                                    <span class="badge" :class="u.is_active ? 'badge-active' : 'badge-closed'"
+                                        x-text="u.is_active ? 'active' : 'disabled'"></span>
+                                </td>
+                                <td style="font-size:.8rem;color:var(--text-secondary)"
+                                    x-text="formatDate(u.created_at)"></td>
+                                <td>
+                                    <div style="display:flex;gap:.25rem">
+                                        <button class="btn btn-sm" @click="toggleUserActive(u)"
+                                            x-text="u.is_active ? 'Disable' : 'Enable'"></button>
+                                        <button class="btn btn-sm" @click="promptChangePassword(u)">Password</button>
+                                        <button class="btn btn-sm"
+                                            @click="toggleUserRole(u)"
+                                            x-text="u.role==='admin' ? 'Demote' : 'Promote'"></button>
+                                        <button class="btn btn-sm btn-danger" @click="confirmDeleteUser(u)">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Status Change / Confirm Modal ─────────────────────── -->
+    <div class="modal-overlay" x-show="modal.show" x-cloak @click.self="modal.show=false">
+        <div class="modal">
+            <h3 x-text="modal.title"></h3>
+            <p x-html="modal.message"></p>
+            <template x-if="modal.input">
+                <div style="margin-top:.75rem">
+                    <label style="display:block;font-size:.75rem;font-weight:600;text-transform:uppercase;color:var(--text-secondary);margin-bottom:.25rem"
+                        x-text="modal.inputLabel"></label>
+                    <input :type="modal.inputType||'text'" x-model="modal.inputValue" style="width:100%">
+                </div>
+            </template>
+            <div class="modal-actions">
+                <button class="btn" @click="modal.show=false">Cancel</button>
+                <button class="btn" :class="modal.btnClass" @click="modal.action()" :disabled="modal.loading">
+                    <template x-if="modal.loading"><span class="spinner"></span></template>
+                    <span x-text="modal.btnText"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Account Detail Modal ──────────────────────────────── -->
+    <div class="modal-overlay" x-show="detailModal.show" x-cloak @click.self="detailModal.show=false">
+        <div class="modal">
+            <h3 x-text="detailModal.account?.email || ''"></h3>
+            <template x-if="detailModal.account">
+                <div>
+                    <div class="detail-row">
+                        <span class="detail-label">Status</span>
+                        <span class="badge" :class="'badge-'+detailModal.account.account_status"
+                            x-text="detailModal.account.account_status"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Display Name</span>
+                        <span class="detail-value" x-text="detailModal.account.display_name || '-'"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Domain</span>
+                        <span class="detail-value" x-text="detailModal.account.domain"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Last Login</span>
+                        <span class="detail-value"
+                            x-text="detailModal.account.last_login ? formatDate(detailModal.account.last_login) : 'Never'"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Forwarding</span>
+                        <span class="detail-value"
+                            x-text="detailModal.account.forwarding_addresses || 'None'"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Inactive Since</span>
+                        <span class="detail-value"
+                            x-text="detailModal.account.inactive_since ? formatDate(detailModal.account.inactive_since) : '-'"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Purge Eligible</span>
+                        <span class="detail-value"
+                            x-text="detailModal.account.purge_eligible ? 'Yes' : 'No'"
+                            :style="detailModal.account.purge_eligible ? 'color:var(--red)' : ''"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Zimbra ID</span>
+                        <span class="detail-value" style="font-size:.75rem;color:var(--text-muted)"
+                            x-text="detailModal.account.zimbra_id"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">COS</span>
+                        <span class="detail-value" x-text="detailModal.account.cos_name || '-'"></span>
+                    </div>
+                </div>
+            </template>
+            <div class="modal-actions">
+                <button class="btn" @click="detailModal.show=false">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
