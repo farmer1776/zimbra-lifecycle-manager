@@ -161,7 +161,6 @@ On first startup, the application seeds two users:
 | Username | Role | Description |
 |----------|------|-------------|
 | `admin` | admin | Full access including user management |
-| `derek` | operator | All features except user management |
 
 Passwords are configured via `SEED_ADMIN_PASSWORD` and `SEED_OPERATOR_PASSWORD` in `.env`. Seed users are only created if they don't already exist.
 
