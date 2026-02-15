@@ -620,6 +620,63 @@ def audit_log(
     return services.get_audit_log(db, target, action, page, per_page)
 
 
+@app.get("/api/audit/export")
+def export_audit_csv(
+    target: str = Query(None),
+    action: str = Query(None),
+    date_from: str = Query(None),
+    date_to: str = Query(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Export filtered audit log as a CSV download."""
+    from app.models import AuditLog
+    from datetime import datetime
+
+    query = db.query(AuditLog).order_by(AuditLog.created_at.desc())
+    if target:
+        query = query.filter(AuditLog.target_account.ilike(f"%{target}%"))
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if date_from:
+        try:
+            query = query.filter(AuditLog.created_at >= datetime.fromisoformat(date_from))
+        except ValueError:
+            raise HTTPException(400, "Invalid date_from format (use YYYY-MM-DD)")
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59)
+            query = query.filter(AuditLog.created_at <= dt_to)
+        except ValueError:
+            raise HTTPException(400, "Invalid date_to format (use YYYY-MM-DD)")
+
+    logs = query.all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "timestamp", "admin_user", "action", "target_account",
+        "old_value", "new_value",
+    ])
+    for l in logs:
+        writer.writerow([
+            str(l.created_at) if l.created_at else "",
+            l.admin_user or "",
+            l.action or "",
+            l.target_account or "",
+            l.old_value or "",
+            l.new_value or "",
+        ])
+
+    output.seek(0)
+    filename = f"audit_report_{date_from or 'all'}_{date_to or 'all'}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Health ────────────────────────────────────────────────────────────
 
 @app.get("/api/health")

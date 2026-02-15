@@ -339,6 +339,33 @@ function app() {
             } catch (e) { /* toast already shown */ }
         },
 
+        async exportAuditCSV() {
+            const params = new URLSearchParams();
+            if (this.auditSearch) params.set('target', this.auditSearch);
+            const token = localStorage.getItem('token');
+            try {
+                const resp = await fetch(`/api/audit/export?${params}`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                });
+                if (!resp.ok) throw new Error('Export failed');
+                const blob = await resp.blob();
+                const disposition = resp.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="(.+)"/);
+                const filename = match ? match[1] : 'audit_report.csv';
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                this.toast(`Exported ${this.auditData.total} audit entries`, 'success');
+            } catch (e) {
+                this.toast(e.message, 'error');
+            }
+        },
+
         // ── User Management ─────────────────────────────────
 
         async loadUsers() {

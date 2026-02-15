@@ -382,6 +382,11 @@ user2@example.com,locked</pre>
                 <input type="search" placeholder="Filter by account..." x-model="auditSearch"
                     @keydown.enter="loadAudit()" style="width:220px">
                 <button class="btn btn-sm" @click="loadAudit()">Filter</button>
+                <div style="margin-left:auto">
+                    <span style="font-size:.78rem;color:var(--text-secondary)"
+                        x-text="auditData.total + ' entries'"></span>
+                    <button class="btn btn-sm" @click="exportAuditCSV()">Export CSV</button>
+                </div>
             </div>
             <div class="table-wrap">
                 <table>
