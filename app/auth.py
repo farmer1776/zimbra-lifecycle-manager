@@ -101,7 +101,6 @@ def seed_users(db: Session):
 
     defaults = [
         ("admin", settings.SEED_ADMIN_PASSWORD, "Administrator", "admin"),
-        ("derek", settings.SEED_OPERATOR_PASSWORD, "Derek", "operator"),
     ]
     for username, password, display, role in defaults:
         existing = db.query(User).filter(User.username == username).first()
